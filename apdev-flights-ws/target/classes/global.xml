@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+
+<mule xmlns:cluster="http://www.mulesoft.org/schema/mule/ee/cluster" xmlns:ws="http://www.mulesoft.org/schema/mule/ws" xmlns:http="http://www.mulesoft.org/schema/mule/http" xmlns:context="http://www.springframework.org/schema/context" xmlns="http://www.mulesoft.org/schema/mule/core" xmlns:doc="http://www.mulesoft.org/schema/mule/documentation"
+	xmlns:spring="http://www.springframework.org/schema/beans" 
+	xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+	xsi:schemaLocation="http://www.springframework.org/schema/beans http://www.springframework.org/schema/beans/spring-beans-current.xsd
+http://www.mulesoft.org/schema/mule/core http://www.mulesoft.org/schema/mule/core/current/mule.xsd
+http://www.mulesoft.org/schema/mule/http http://www.mulesoft.org/schema/mule/http/current/mule-http.xsd
+http://www.springframework.org/schema/context http://www.springframework.org/schema/context/spring-context-current.xsd
+http://www.mulesoft.org/schema/mule/ws http://www.mulesoft.org/schema/mule/ws/current/mule-ws.xsd">
+    <context:property-placeholder location="flights-${env}.properties"/>
+    <http:listener-config name="HTTP_Listener_Configuration" host="0.0.0.0" port="${http.port}" doc:name="HTTP Listener Configuration"/>
+    <http:request-config name="United_REST_Request_Configuration" host="0.0.0.0" port="9090" doc:name="HTTP Request Configuration"/>
+    <http:request-config name="American_HTTP_Request_Configuration" host="training-american-ws.cloudhub.io" port="80" basePath="/api/" doc:name="HTTP Request Configuration">
+        <http:raml-api-configuration location="https://anypoint.mulesoft.com/exchange/api/v1/organizations/68ef9520-24e9-4cf2-b2f5-620025690913/assets/68ef9520-24e9-4cf2-b2f5-620025690913/training-american-flights-api/1.0.1/api/root"/>
+    </http:request-config>
+    <ws:consumer-config name="Delta_Web_Service_Consumer" wsdlLocation="http://localhost:9191/essentials/delta?wsdl" service="DeltaFlightsService" port="DeltaFlightsServiceImplPort" serviceAddress="http://localhost:9191/essentials/delta" doc:name="Web Service Consumer"/>
+    <configuration defaultExceptionStrategy-ref="Choice_Exception_Strategy" doc:name="Configuration">
+        <expression-language>
+        <global-functions>
+        def getNumSeats(type){ 
+        if (type.contains('737')){ 
+          return 150;
+         } else {  
+            return 300; 
+            }
+         }
+        </global-functions>
+        </expression-language>
+    </configuration>
+    <payload-type-filter expectedType="java.util.ArrayList" name="Filter_Not_ArrayList" doc:name="Payload"/>
+
+
+<choice-exception-strategy name="Choice_Exception_Strategy">
+		<catch-exception-strategy when="#[exception.causedBy(java.lang.IllegalArgumentException)]" doc:name="No destination code set">
+            <set-payload value="#[exception.message]" doc:name="Set Payload"/>
+            <set-property propertyName="#[http.status]" value="400" doc:name="Property"/>
+            <logger level="INFO" doc:name="Logger"/>
+        </catch-exception-strategy>
+            <catch-exception-strategy when="#[exception.causeMatches('com.mulesoft.weave.*')]" doc:name="No flights &#8211; DW exception">
+                <set-payload value="NO FLIGHTS to #[flowVars.code +  '\n' + exception]" doc:name="Set Payload"/>
+                <set-property propertyName="http.status" value="400" mimeType="application/csv" doc:name="Property"/>
+                <logger level="INFO" doc:name="Logger"/>
+            </catch-exception-strategy>
+            <catch-exception-strategy doc:name="Data unavailable &#8211; all other exceptions">
+                <set-payload value="DATA IS UNAVAILABLE. TRY LATER. #['\n' + exception]" doc:name="Set Payload"/>
+                <set-property propertyName="http.status" value="500" doc:name="Property"/>
+                <logger level="INFO" doc:name="Logger"/>
+            </catch-exception-strategy>
+        
+        </choice-exception-strategy>
+</mule>
